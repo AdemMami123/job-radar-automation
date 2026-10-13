@@ -1,0 +1,1508 @@
+{
+  "name": "01 - GTM Lead Validation",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "hours",
+              "hoursInterval": 6
+            }
+          ]
+        }
+      },
+      "id": "037e6b26-cbdd-4589-a3ac-350fdb3feb68",
+      "name": "Every 6 Hours",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        -144,
+        80
+      ]
+    },
+    {
+      "parameters": {
+        "url": "https://remotive.com/api/remote-jobs?category=software-dev&limit=100",
+        "options": {}
+      },
+      "id": "2ac4d531-0fbc-4bf0-86be-530e8ad1e4d6",
+      "name": "Fetch Remotive",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        112,
+        -112
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 3000,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "url": "https://www.arbeitnow.com/api/job-board-api",
+        "options": {}
+      },
+      "id": "15dcc25f-c2b6-4786-92d6-de01a6acd61a",
+      "name": "Fetch Arbeitnow",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        112,
+        80
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 3000,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "url": "https://remoteok.com/api",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "User-Agent",
+              "value": "job-radar-portfolio-project"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "6c0c1b03-41ea-4ff9-b723-500d906b7c5f",
+      "name": "Fetch RemoteOK",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        112,
+        256
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 3000,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "const strip = h => (h || '').replace(/<[^>]*>/g, ' ').replace(/&nbsp;/g, ' ').replace(/\\s+/g, ' ').trim();\nconst out = [];\nfor (const item of $input.all()) {\n  for (const j of (item.json.jobs || [])) {\n    out.push({ json: {\n      source: 'remotive', external_id: String(j.id), title: j.title, company: j.company_name,\n      location: j.candidate_required_location || 'Worldwide', remote: true, url: j.url,\n      description: strip(j.description), tags: j.tags || [], posted_at: j.publication_date\n    }});\n  }\n}\nreturn out;"
+      },
+      "id": "e89202e7-8885-4542-8f12-52c0318580af",
+      "name": "Normalize Remotive",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        384,
+        -112
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const strip = h => (h || '').replace(/<[^>]*>/g, ' ').replace(/&nbsp;/g, ' ').replace(/\\s+/g, ' ').trim();\nconst out = [];\nfor (const item of $input.all()) {\n  for (const j of (item.json.data || [])) {\n    out.push({ json: {\n      source: 'arbeitnow', external_id: j.slug, title: j.title, company: j.company_name,\n      location: j.location, remote: !!j.remote, url: j.url, description: strip(j.description),\n      tags: j.tags || [], posted_at: j.created_at ? new Date(j.created_at * 1000).toISOString() : null\n    }});\n  }\n}\nreturn out;"
+      },
+      "id": "a5053793-aaa4-4408-82c6-6deef254c3d9",
+      "name": "Normalize Arbeitnow",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        384,
+        80
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const strip = h => (h || '').replace(/<[^>]*>/g, ' ').replace(/&nbsp;/g, ' ').replace(/\\s+/g, ' ').trim();\nreturn $input.all()\n  .filter(i => i.json.position)\n  .map(i => {\n    const j = i.json;\n    return { json: {\n      source: 'remoteok', external_id: String(j.id), title: j.position, company: j.company,\n      location: j.location || 'Worldwide', remote: true, url: j.url,\n      description: strip(j.description), tags: j.tags || [], posted_at: j.date\n    }};\n  });"
+      },
+      "id": "1e075577-e48d-4219-82e4-0696a61cd1e4",
+      "name": "Normalize RemoteOK",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        384,
+        256
+      ]
+    },
+    {
+      "parameters": {
+        "numberInputs": 3
+      },
+      "id": "ab165d24-5651-4356-b9f9-7dd84520504e",
+      "name": "Merge Sources",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3,
+      "position": [
+        640,
+        80
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const norm = s => (s || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();\nconst seen = new Set();\nconst out = [];\n\nfor (const item of $input.all()) {\n  const j = item.json;\n  if (!j.title || !j.company) continue; // drops error items from failed sources\n\n  const fingerprint = `${norm(j.company)}|${norm(j.title)}|${norm(j.location)}`;\n  if (seen.has(fingerprint)) continue;\n  seen.add(fingerprint);\n\n  const text = `${j.title} ${j.description || ''}`.toLowerCase();\n  const d = j.posted_at ? new Date(j.posted_at) : null;\n\n  out.push({ json: {\n    fingerprint,\n    source: j.source,\n    external_id: j.external_id,\n    title: j.title.trim(),\n    company: j.company.trim(),\n    location: j.location || null,\n    remote: !!j.remote,\n    url: j.url,\n    description: (j.description || '').slice(0, 4000),\n    tags: (j.tags || []).map(t => String(t).toLowerCase()),\n    visa_sponsorship: /visa sponsorship|sponsor(s|ship)? (a )?visa|relocation (support|package|assistance)/.test(text),\n    posted_at: d && !isNaN(d) ? d.toISOString() : null\n  }});\n}\nreturn out;"
+      },
+      "id": "12d34b5d-deb7-43f4-a4e9-fa623c0abbdf",
+      "name": "Normalize & Fingerprint",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        864,
+        80
+      ]
+    },
+    {
+      "parameters": {
+        "schema": {
+          "__rl": true,
+          "mode": "name",
+          "value": "public"
+        },
+        "table": {
+          "__rl": true,
+          "mode": "name",
+          "value": "jobs"
+        },
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "value": {
+            "remote": false,
+            "visa_sponsorship": false
+          },
+          "matchingColumns": [
+            "id"
+          ],
+          "schema": [
+            {
+              "id": "id",
+              "displayName": "id",
+              "required": false,
+              "defaultMatch": true,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "fingerprint",
+              "displayName": "fingerprint",
+              "required": true,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "source",
+              "displayName": "source",
+              "required": true,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "external_id",
+              "displayName": "external_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "title",
+              "displayName": "title",
+              "required": true,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "company",
+              "displayName": "company",
+              "required": true,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "location",
+              "displayName": "location",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "remote",
+              "displayName": "remote",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "boolean",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "url",
+              "displayName": "url",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "description",
+              "displayName": "description",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "visa_sponsorship",
+              "displayName": "visa_sponsorship",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "boolean",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "posted_at",
+              "displayName": "posted_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "dateTime",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "first_seen_at",
+              "displayName": "first_seen_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "dateTime",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "score",
+              "displayName": "score",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "score_breakdown",
+              "displayName": "score_breakdown",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "status",
+              "displayName": "status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "notified_at",
+              "displayName": "notified_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "dateTime",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "tags",
+              "displayName": "tags",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "array",
+              "canBeUsedToMatch": true,
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {
+          "skipOnConflict": true
+        }
+      },
+      "id": "164096ef-7ff5-47a8-9b7c-23d5d12c4d16",
+      "name": "Insert New Jobs",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        1072,
+        80
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "nDYbMEFIrK0Fj0XX",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT key, value FROM scoring_config;",
+        "options": {}
+      },
+      "id": "ce27bb84-72f1-4c83-9714-d524ddddbe00",
+      "name": "Load Config",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        1296,
+        80
+      ],
+      "executeOnce": true,
+      "credentials": {
+        "postgres": {
+          "id": "nDYbMEFIrK0Fj0XX",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "\nconst cfg = {};\nfor (const row of $('Load Config').all()) {\n  cfg[row.json.key] = row.json.value;\n}\n\nconst hits = (list = [], text = '') =>\n  list.filter(k => text.includes(k.toLowerCase()));\n\nconst jobs = $('Normalize & Fingerprint').all();\nconst out = [];\n\nfor (const item of jobs) {\n  const j = item.json;\n\n  if (!j.fingerprint) continue;\n\n  const title = (j.title || '').toLowerCase();\n  const text = `${title} ${(j.description || '').toLowerCase()} ${(j.tags || []).join(' ')}`;\n  const b = {};\n\n  if (hits(cfg.target_titles, title).length) b.title_match = 30;\n\n  const stack = hits(cfg.stack_keywords, text).length;\n  if (stack) b.stack_match = Math.min(stack * 5, 25);\n\n  if (/(^|[^a-z])(junior|entry[- ]level|graduate|associate|intern)([^a-z]|$)/.test(text)) {\n    b.junior_friendly = 15;\n  }\n\n  if (\n    hits(cfg.negative_keywords, title).length ||\n    /([5-9]|1[0-9])[+]? (years|yrs)/.test(text)\n  ) {\n    b.seniority_penalty = -40;\n  }\n\n  if (j.remote || hits(cfg.preferred_locations, (j.location || '').toLowerCase()).length) {\n    b.location_fit = 10;\n  }\n\n  if (j.visa_sponsorship) b.visa_or_relocation = 15;\n\n  if (j.posted_at && (Date.now() - new Date(j.posted_at).getTime()) / 864e5 <= 3) {\n    b.fresh = 10;\n  }\n\n  let score = Object.values(b).reduce((a, v) => a + v, 0);\n\n  if ((cfg.blacklist_companies || []).map(c => c.toLowerCase()).includes((j.company || '').toLowerCase())) {\n    score = 0;\n    b.blacklisted = 0;\n  }\n\n  score = Math.max(0, Math.min(100, score));\n\n  out.push({\n    json: {\n      fingerprint: j.fingerprint,\n      score,\n      score_breakdown: JSON.stringify(b),\n      status: score >= 60 ? 'hot' : score >= 35 ? 'queued' : 'ignored'\n    }\n  });\n}\n\nreturn out;"
+      },
+      "id": "1528b7ac-f07d-43c9-9276-a18d91032f25",
+      "name": "Score Jobs",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1520,
+        80
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "schema": {
+          "__rl": true,
+          "mode": "name",
+          "value": "public"
+        },
+        "table": {
+          "__rl": true,
+          "mode": "name",
+          "value": "jobs"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "fingerprint": "={{ $json.fingerprint }}",
+            "score": "={{ $json.score }}",
+            "score_breakdown": "={{ $json.score_breakdown }}",
+            "status": "={{ $json.status }}"
+          },
+          "matchingColumns": [
+            "fingerprint"
+          ],
+          "schema": [
+            {
+              "id": "id",
+              "displayName": "id",
+              "required": false,
+              "defaultMatch": true,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "fingerprint",
+              "displayName": "fingerprint",
+              "required": true,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "source",
+              "displayName": "source",
+              "required": true,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "external_id",
+              "displayName": "external_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "title",
+              "displayName": "title",
+              "required": true,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "company",
+              "displayName": "company",
+              "required": true,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "location",
+              "displayName": "location",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "remote",
+              "displayName": "remote",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "boolean",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "url",
+              "displayName": "url",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "description",
+              "displayName": "description",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "visa_sponsorship",
+              "displayName": "visa_sponsorship",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "boolean",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "posted_at",
+              "displayName": "posted_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "dateTime",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "first_seen_at",
+              "displayName": "first_seen_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "dateTime",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "score",
+              "displayName": "score",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "score_breakdown",
+              "displayName": "score_breakdown",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "status",
+              "displayName": "status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "notified_at",
+              "displayName": "notified_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "dateTime",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "tags",
+              "displayName": "tags",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "array",
+              "canBeUsedToMatch": true,
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "id": "6e5c5072-dc48-45c1-a319-0008debdf650",
+      "name": "Save Score",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        1744,
+        80
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "nDYbMEFIrK0Fj0XX",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "\nconst esc = s =>\n  String(s ?? '')\n    .replace(/&/g, '&amp;')\n    .replace(/</g, '&lt;')\n    .replace(/>/g, '&gt;')\n    .replace(/'/g, '&#39;');\n\nconst jobs = $input.all()\n  .map(i => i.json)\n  .filter(j => j.status === 'hot' && j.title && j.url)\n  .sort((a, b) => (Number(b.score) || 0) - (Number(a.score) || 0));\n\nif (jobs.length === 0) {\n  return [{\n    json: {\n      subject: 'Job Radar: No hot matches found',\n      html: '<h2>Job Radar</h2><p>No jobs met the hot-match criteria in this run. Check your scoring configuration or try again after new jobs are collected.</p>'\n    }\n  }];\n}\n\nconst rows = jobs.map(j => {\n  let breakdown = j.score_breakdown || {};\n\n  if (typeof breakdown === 'string') {\n    try {\n      breakdown = JSON.parse(breakdown);\n    } catch {\n      breakdown = {};\n    }\n  }\n\n  const why = Object.entries(breakdown)\n    .map(([key, value]) => `${key}: ${value}`)\n    .join(', ');\n\n  return `<tr>\n    <td>${esc(j.id ?? '—')}</td>\n    <td><b>${esc(j.title)}</b><br>${esc(j.company)} - ${esc(j.location)}</td>\n    <td>${Number(j.score) || 0}</td>\n    <td>${esc(why)}</td>\n    <td><a href=\"${esc(j.url)}\">Open job</a></td>\n  </tr>`;\n}).join('');\n\nconst html = `\n<h2>${jobs.length} hot job match(es)</h2>\n<table border=\"1\" cellpadding=\"6\" cellspacing=\"0\"\nstyle=\"border-collapse:collapse;font-family:Arial,sans-serif\">\n<tr><th>ID</th><th>Job</th><th>Score</th><th>Why</th><th>Link</th></tr>\n${rows}\n</table>\n<p>Review each listing before applying.</p>`;\n\nreturn [{\n  json: {\n    subject: `Job Radar: ${jobs.length} hot match(es)`,\n    html\n  }\n}];"
+      },
+      "id": "45a9123d-c3ee-4217-84d7-2adc26c8146e",
+      "name": "Build Hot Email",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1952,
+        80
+      ]
+    },
+    {
+      "parameters": {
+        "fromEmail": "radar@job-radar.local",
+        "toEmail": "me@job-radar.local",
+        "subject": "={{ $json.subject }}",
+        "html": "={{ $json.html }}",
+        "options": {}
+      },
+      "id": "ef3d0d36-0d0d-45a1-b443-1b91371815a2",
+      "name": "Send Hot Email",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [
+        2176,
+        80
+      ],
+      "webhookId": "ff252f3d-fa38-4c8c-8086-003ffedb3a1b",
+      "credentials": {
+        "smtp": {
+          "id": "IVSTmd2gVMxs8JaL",
+          "name": "SMTP account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE jobs SET status = 'notified', notified_at = now() WHERE status = 'hot';",
+        "options": {}
+      },
+      "id": "7ec1c4a7-bcbf-4dee-82a4-35285d90f5db",
+      "name": "Mark Notified",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        2400,
+        80
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "nDYbMEFIrK0Fj0XX",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "triggerAtHour": 8
+            }
+          ]
+        }
+      },
+      "id": "0b6c89fc-d889-4d63-9c0f-7371cf093177",
+      "name": "Daily 08:00 Digest",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        -144,
+        528
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT id, title, company, location, url, score\nFROM jobs\nWHERE status = 'queued'\nORDER BY score DESC\nLIMIT 50;",
+        "options": {}
+      },
+      "id": "ef47d8f6-aa26-4401-9659-5572e7a08775",
+      "name": "Select Queued",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        112,
+        528
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "nDYbMEFIrK0Fj0XX",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const esc = s => String(s ?? '').split('&').join('&amp;').split('<').join('&lt;').split('>').join('&gt;').split(String.fromCharCode(39)).join('&#39;');\nconst jobs = $input.all().map(i => i.json);\nif (!jobs.length) return [];\n\nconst rows = jobs.map(j => `<tr><td>#${j.id}</td><td><b>${esc(j.title)}</b><br>${esc(j.company)} - ${esc(j.location)}</td><td>${j.score}</td><td><a href='${esc(j.url)}'>Open</a></td></tr>`).join('');\nconst html = `<h2>${jobs.length} jobs worth a look</h2><table border='1' cellpadding='6' cellspacing='0' style='border-collapse:collapse;font-family:Arial,sans-serif'><tr><th>ID</th><th>Job</th><th>Score</th><th>Link</th></tr>${rows}</table>`;\n\nreturn [{ json: { subject: `Job Radar digest: ${jobs.length} jobs`, html, ids: jobs.map(j => j.id).join(',') } }];"
+      },
+      "id": "23a868e2-eeeb-438f-b6b2-ffedc0d88cf1",
+      "name": "Build Digest",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        384,
+        528
+      ]
+    },
+    {
+      "parameters": {
+        "fromEmail": "radar@job-radar.local",
+        "toEmail": "me@job-radar.local",
+        "subject": "={{ $json.subject }}",
+        "html": "={{ $json.html }}",
+        "options": {}
+      },
+      "id": "6710c619-38e9-4442-ae2c-f7b21939f55a",
+      "name": "Send Digest",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [
+        640,
+        528
+      ],
+      "webhookId": "9792d905-1134-42f6-9818-6606328c4ec2",
+      "credentials": {
+        "smtp": {
+          "id": "IVSTmd2gVMxs8JaL",
+          "name": "SMTP account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE jobs SET status = 'notified', notified_at = now()\nWHERE id IN ({{ $('Build Digest').first().json.ids }});",
+        "options": {}
+      },
+      "id": "d7a03657-e727-4a13-9458-803e175c22b3",
+      "name": "Mark Digest Sent",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        896,
+        528
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "nDYbMEFIrK0Fj0XX",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "formTitle": "Mark job as applied",
+        "formDescription": "Log an application and schedule a follow-up in 7 days.",
+        "formFields": {
+          "values": [
+            {
+              "fieldLabel": "Job ID",
+              "fieldType": "number",
+              "requiredField": true
+            },
+            {
+              "fieldLabel": "Notes",
+              "fieldType": "textarea"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "f7260e53-9807-40f5-baa7-a40cc51040d8",
+      "name": "Mark as Applied Form",
+      "type": "n8n-nodes-base.formTrigger",
+      "typeVersion": 2.2,
+      "position": [
+        -144,
+        800
+      ],
+      "webhookId": "438a33ef-7f31-405b-a33b-08172b978916"
+    },
+    {
+      "parameters": {
+        "schema": {
+          "__rl": true,
+          "mode": "name",
+          "value": "public"
+        },
+        "table": {
+          "__rl": true,
+          "mode": "name",
+          "value": "applications"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "job_id": "={{ $json['Job ID'] }}",
+            "follow_up_at": "={{ $now.plus({ days: 7 }).toISO() }}",
+            "notes": "={{ $json['Notes'] }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "job_id",
+              "displayName": "job_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "follow_up_at",
+              "displayName": "follow_up_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "notes",
+              "displayName": "notes",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "a97de94d-826b-4159-a4ec-10ef1f8bd1b4",
+      "name": "Save Application",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        112,
+        800
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "nDYbMEFIrK0Fj0XX",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "schema": {
+          "__rl": true,
+          "mode": "name",
+          "value": "public"
+        },
+        "table": {
+          "__rl": true,
+          "mode": "name",
+          "value": "jobs"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "id": "={{ $json.job_id }}",
+            "status": "applied"
+          },
+          "matchingColumns": [
+            "id"
+          ],
+          "schema": [
+            {
+              "id": "id",
+              "displayName": "id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "status",
+              "displayName": "status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "27f791a2-19aa-4b56-86be-3dce37e65628",
+      "name": "Update Job Status",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        384,
+        800
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "nDYbMEFIrK0Fj0XX",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "triggerAtHour": 9
+            }
+          ]
+        }
+      },
+      "id": "c0f0f3e4-fead-422d-b5bf-3be842541cb5",
+      "name": "Daily 09:00 Follow-ups",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        -144,
+        1056
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT a.id, j.title, j.company, j.url, a.follow_up_at\nFROM applications a\nJOIN jobs j ON j.id = a.job_id\nWHERE a.stage = 'applied' AND a.follow_up_at <= now();",
+        "options": {}
+      },
+      "id": "1979e819-25fd-4ed0-93a4-1b6062263858",
+      "name": "Select Due",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        112,
+        1056
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "nDYbMEFIrK0Fj0XX",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const esc = s => String(s ?? '').split('&').join('&amp;').split('<').join('&lt;').split('>').join('&gt;').split(String.fromCharCode(39)).join('&#39;');\nconst apps = $input.all().map(i => i.json);\nif (!apps.length) return [];\n\nconst items = apps.map(a => `<li><b>${esc(a.title)}</b> at ${esc(a.company)} - <a href='${esc(a.url)}'>posting</a></li>`).join('');\nconst html = `<h2>${apps.length} application(s) need a follow-up</h2><ul>${items}</ul><p>Send a short, polite follow-up email or LinkedIn message.</p>`;\n\nreturn [{ json: { subject: `Follow up on ${apps.length} application(s)`, html, ids: apps.map(a => a.id).join(',') } }];"
+      },
+      "id": "26779d4d-1beb-4ed9-843e-befa53cd736e",
+      "name": "Build Reminder",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        384,
+        1056
+      ]
+    },
+    {
+      "parameters": {
+        "fromEmail": "radar@job-radar.local",
+        "toEmail": "me@job-radar.local",
+        "subject": "={{ $json.subject }}",
+        "html": "={{ $json.html }}",
+        "options": {}
+      },
+      "id": "df37caa8-c0c3-443c-a371-fa3f955f499c",
+      "name": "Send Reminder",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [
+        640,
+        1056
+      ],
+      "webhookId": "50a9596c-d1a9-4c38-ac8d-342c4fd5f837",
+      "credentials": {
+        "smtp": {
+          "id": "IVSTmd2gVMxs8JaL",
+          "name": "SMTP account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE applications SET follow_up_at = now() + interval '5 days'\nWHERE id IN ({{ $('Build Reminder').first().json.ids }});",
+        "options": {}
+      },
+      "id": "b8a70d5a-c5a9-4e3e-bc96-2b0b6ba00f63",
+      "name": "Push Follow-up",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        896,
+        1056
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "nDYbMEFIrK0Fj0XX",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "triggerAtHour": 10
+            }
+          ]
+        }
+      },
+      "id": "78262a1f-05cf-4e7e-a989-757d3b0af1f4",
+      "name": "Daily 10:00 Health Check",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        -144,
+        1312
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT s.source, MAX(j.first_seen_at) AS last_new\nFROM (VALUES ('remotive'), ('arbeitnow'), ('remoteok')) AS s(source)\nLEFT JOIN jobs j ON j.source = s.source\nGROUP BY s.source\nHAVING MAX(j.first_seen_at) IS NULL OR MAX(j.first_seen_at) < now() - interval '72 hours';",
+        "options": {}
+      },
+      "id": "f1b5867a-46a5-4299-98a5-e859a95eb315",
+      "name": "Find Quiet Sources",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        112,
+        1312
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "nDYbMEFIrK0Fj0XX",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const rows = $input.all().map(i => i.json);\nif (!rows.length) return [];\nconst lines = rows.map(r => `${r.source}: last new job ${r.last_new || 'never'}`);\nreturn [{ json: { subject: 'Job Radar: quiet source(s)', text: lines.join(' | ') } }];"
+      },
+      "id": "7bf1a34d-5cf5-4d5d-8977-081322683a2f",
+      "name": "Build Alert",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        384,
+        1312
+      ]
+    },
+    {
+      "parameters": {
+        "fromEmail": "radar@job-radar.local",
+        "toEmail": "me@job-radar.local",
+        "subject": "={{ $json.subject }}",
+        "emailFormat": "text",
+        "text": "={{ $json.text }}",
+        "options": {}
+      },
+      "id": "1d3785c3-02f1-4976-be1b-79ad688e492d",
+      "name": "Send Alert",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [
+        640,
+        1312
+      ],
+      "webhookId": "57d4efb1-87d2-423d-9e47-f9a6a679c7e7",
+      "credentials": {
+        "smtp": {
+          "id": "IVSTmd2gVMxs8JaL",
+          "name": "SMTP account"
+        }
+      }
+    },
+    {
+      "parameters": {},
+      "id": "838d2234-18f6-48ea-8fd1-a9dc6a9cf4de",
+      "name": "Error Trigger",
+      "type": "n8n-nodes-base.errorTrigger",
+      "typeVersion": 1,
+      "position": [
+        592,
+        288
+      ]
+    },
+    {
+      "parameters": {
+        "fromEmail": "radar@job-radar.local",
+        "toEmail": "me@job-radar.local",
+        "subject": "=Workflow failed: {{ $json.workflow.name }}",
+        "emailFormat": "text",
+        "text": "=Node: {{ $json.execution.lastNodeExecuted }}\nError: {{ $json.execution.error.message }}\nOpen: {{ $json.execution.url }}",
+        "options": {}
+      },
+      "id": "bd96e124-778f-4eb9-a31e-0bc29a5a9c6d",
+      "name": "Send Failure Email",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [
+        864,
+        288
+      ],
+      "webhookId": "64626ec8-5c34-4e68-9cf9-706b23ca1102",
+      "credentials": {
+        "smtp": {
+          "id": "IVSTmd2gVMxs8JaL",
+          "name": "SMTP account"
+        }
+      }
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Every 6 Hours": {
+      "main": [
+        [
+          {
+            "node": "Fetch Remotive",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Fetch Arbeitnow",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Fetch RemoteOK",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Remotive": {
+      "main": [
+        [
+          {
+            "node": "Normalize Remotive",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Arbeitnow": {
+      "main": [
+        [
+          {
+            "node": "Normalize Arbeitnow",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch RemoteOK": {
+      "main": [
+        [
+          {
+            "node": "Normalize RemoteOK",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalize Remotive": {
+      "main": [
+        [
+          {
+            "node": "Merge Sources",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalize Arbeitnow": {
+      "main": [
+        [
+          {
+            "node": "Merge Sources",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Normalize RemoteOK": {
+      "main": [
+        [
+          {
+            "node": "Merge Sources",
+            "type": "main",
+            "index": 2
+          }
+        ]
+      ]
+    },
+    "Merge Sources": {
+      "main": [
+        [
+          {
+            "node": "Normalize & Fingerprint",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalize & Fingerprint": {
+      "main": [
+        [
+          {
+            "node": "Insert New Jobs",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Insert New Jobs": {
+      "main": [
+        [
+          {
+            "node": "Load Config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Load Config": {
+      "main": [
+        [
+          {
+            "node": "Score Jobs",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Score Jobs": {
+      "main": [
+        [
+          {
+            "node": "Save Score",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Save Score": {
+      "main": [
+        [
+          {
+            "node": "Build Hot Email",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Hot Email": {
+      "main": [
+        [
+          {
+            "node": "Send Hot Email",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send Hot Email": {
+      "main": [
+        [
+          {
+            "node": "Mark Notified",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Daily 08:00 Digest": {
+      "main": [
+        [
+          {
+            "node": "Select Queued",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Select Queued": {
+      "main": [
+        [
+          {
+            "node": "Build Digest",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Digest": {
+      "main": [
+        [
+          {
+            "node": "Send Digest",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send Digest": {
+      "main": [
+        [
+          {
+            "node": "Mark Digest Sent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mark as Applied Form": {
+      "main": [
+        [
+          {
+            "node": "Save Application",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Save Application": {
+      "main": [
+        [
+          {
+            "node": "Update Job Status",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Daily 09:00 Follow-ups": {
+      "main": [
+        [
+          {
+            "node": "Select Due",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Select Due": {
+      "main": [
+        [
+          {
+            "node": "Build Reminder",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Reminder": {
+      "main": [
+        [
+          {
+            "node": "Send Reminder",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send Reminder": {
+      "main": [
+        [
+          {
+            "node": "Push Follow-up",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Daily 10:00 Health Check": {
+      "main": [
+        [
+          {
+            "node": "Find Quiet Sources",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Find Quiet Sources": {
+      "main": [
+        [
+          {
+            "node": "Build Alert",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Alert": {
+      "main": [
+        [
+          {
+            "node": "Send Alert",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Error Trigger": {
+      "main": [
+        [
+          {
+            "node": "Send Failure Email",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "versionId": "e03f7d30-a46d-4eba-96f4-d33f5584d8b8",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "add1c7b06d6a4d124bebb5ebaf0d28db2111fc9a515c136cf41e01ccd0012d4c"
+  },
+  "nodeGroups": [],
+  "id": "xhbVf8pl5KoYjIPH",
+  "tags": []
+}
